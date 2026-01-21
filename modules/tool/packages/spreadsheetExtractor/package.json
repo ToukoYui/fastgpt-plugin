@@ -1,0 +1,19 @@
+{
+  "name": "@fastgpt-plugins/tool-spreadsheet-extractor",
+  "module": "index.ts",
+  "type": "module",
+  "scripts": {
+    "build": "bun ../../../../scripts/build.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "iconv-lite": "^0.6.3",
+    "xlsx": "^0.18.5",
+    "zod": "^3.25.76"
+  }
+}
