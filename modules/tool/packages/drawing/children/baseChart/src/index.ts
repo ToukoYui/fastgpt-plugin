@@ -5,14 +5,36 @@ import json5 from 'json5';
 
 export const InputType = z
   .object({
+    mode: z.enum(['data', 'json']).optional(),
     title: z.string().optional(),
-    xAxis: z.union([z.string(), z.array(z.union([z.string(), z.number()]))]),
-    yAxis: z.union([z.string(), z.array(z.union([z.string(), z.number()]))]),
-    chartType: z.string()
+    xAxis: z
+      .union([z.string(), z.array(z.union([z.string(), z.number()]))])
+      .optional(),
+    yAxis: z
+      .union([z.string(), z.array(z.union([z.string(), z.number()]))])
+      .optional(),
+    chartType: z.string().optional(),
+    optionJson: z.string().optional()
   })
   .transform((data) => {
+    const mode = data.mode ?? 'data';
+
+    if (mode === 'json') {
+      const option = data.optionJson ? json5.parse(data.optionJson) : {};
+      return {
+        ...data,
+        mode,
+        option
+      };
+    }
+
+    if (!data.xAxis || !data.yAxis || !data.chartType) {
+      throw new Error('数据模式下，xAxis、yAxis 和 chartType 为必填');
+    }
+
     return {
       ...data,
+      mode,
       xAxis: (Array.isArray(data.xAxis) ? data.xAxis : (json5.parse(data.xAxis) as string[])).map(
         (item) => String(item)
       ),
@@ -94,13 +116,69 @@ const generateChart = async (title = '', xAxis: string[], yAxis: string[], chart
   return file.accessUrl;
 };
 
-export async function tool({
-  title,
-  xAxis,
-  yAxis,
-  chartType
-}: z.infer<typeof InputType>): Promise<z.infer<typeof OutputType>> {
-  const base64 = await generateChart(title, xAxis, yAxis, chartType);
+const generateChartByOption = async (rawOption: any, title = '') => {
+  const option = { ...(rawOption || {}) };
+
+  const series = Array.isArray(option.series) ? option.series : option.series ? [option.series] : [];
+  const isPie = series.some((s: any) => s && s.type === 'pie');
+
+  let xLen = 0;
+  const rawXAxis = option.xAxis;
+  if (Array.isArray(rawXAxis)) {
+    const first = rawXAxis[0];
+    if (first && Array.isArray(first.data)) xLen = first.data.length;
+  } else if (rawXAxis && Array.isArray(rawXAxis.data)) {
+    xLen = rawXAxis.data.length;
+  }
+  const safeXAxisLength = Math.max(xLen, 1);
+  const width = Math.min(1600, Math.max(600, safeXAxisLength * (isPie ? 60 : 80)));
+  const height = isPie ? 480 : 540;
+
+  const chart = echarts.init(undefined, undefined, {
+    renderer: 'svg',
+    ssr: true,
+    width,
+    height
+  });
+
+  if (!option.backgroundColor) {
+    option.backgroundColor = '#ffffff';
+  }
+  if (title && (!option.title || !option.title.text)) {
+    option.title = {
+      ...(typeof option.title === 'object' ? option.title : {}),
+      text: title
+    };
+  }
+
+  chart.setOption(option);
+  const svgContent = chart.renderToSVGString();
+
+  const base64 = `data:image/svg+xml;base64,${Buffer.from(svgContent).toString('base64')}`;
+
+  const file = await uploadFile({
+    base64,
+    defaultFilename: `chart.svg`
+  });
+
+  return file.accessUrl;
+};
+
+export async function tool(
+  input: z.infer<typeof InputType>
+): Promise<z.infer<typeof OutputType>> {
+  const { mode, title } = input as any;
+
+  const base64 =
+    mode === 'json'
+      ? await generateChartByOption((input as any).option, title)
+      : await generateChart(
+          (input as any).title,
+          (input as any).xAxis,
+          (input as any).yAxis,
+          (input as any).chartType
+        );
+
   return {
     '图表 url': base64, // 兼容旧版
     chartUrl: base64
